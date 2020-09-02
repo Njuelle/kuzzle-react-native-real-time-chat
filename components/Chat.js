@@ -28,7 +28,6 @@ export default function Chat({ currentUsername }) {
       setMessages(fetchedMessages);
       setMessagesFetched(true);
     } catch {
-      console.log(err);
       showToast(
         "danger",
         "It looks like there is an error while fetching messages..."

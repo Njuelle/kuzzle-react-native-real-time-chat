@@ -40,14 +40,13 @@ export default function LoginForm({ onLoginSuccess }) {
 
   const performLogin = async () => {
     let jwt = null;
-    console.log("perform login");
     try {
       jwt = await kuzzle.auth.login("local", {
         username,
         password,
       });
 
-      onLoginSuccess(jwt, username);
+      onLoginSuccess(username);
     } catch (err) {
       showToast("danger", err.message);
     }

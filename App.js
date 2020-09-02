@@ -5,22 +5,24 @@ import {
   Root,
   Header,
   Body,
+  Right,
+  Icon,
+  Button,
   Title,
   Container,
   Toast,
-  Text,
   Spinner,
 } from "native-base";
 import kuzzle from "./services/kuzzle";
 import LoginForm from "./components/LoginForm";
 import Chat from "./components/Chat";
+import * as SecureStore from 'expo-secure-store';
 
 export default function App() {
   const [isRessourcesLoaded, setIsRessourcesLoaded] = useState(false);
   const [connected, setConnected] = useState(false);
   const [isLoadingComplete, setIsLoadingComplete] = useState(false);
-  const [jwt, setJwt] = useState(null);
-  const [username, setUsername] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const showToast = (type, message) => {
@@ -50,8 +52,7 @@ export default function App() {
   const connectToKuzzle = async () => {
     try {
       await kuzzle.connect();
-    } catch (err) {
-      console.log(err);
+    } catch {
       setConnected(false);
       showToast(
         "danger",
@@ -79,10 +80,52 @@ export default function App() {
     });
   };
 
-  const onLoginSuccess = (jwt, username) => {
-    setJwt(jwt);
-    setUsername(username);
+  const onLoginSuccess = async (username) => {
+    try {
+      const apiKey = await kuzzle.auth.createApiKey(`${username} API key`);
+      const currentUser = {
+        username,
+        jwt: apiKey._source.token,
+        tokenId: apiKey._id
+      }
+
+      await SecureStore.setItemAsync('persistedUser', JSON.stringify(currentUser));
+
+      setCurrentUser(currentUser)
+    } catch {
+      showToast(
+        "danger",
+        "Sorry an error occured during authentication"
+      );
+    }
   };
+
+  const checkTokenValidity = async (jwt) => {
+    try {
+      const verifiedToken = await kuzzle.auth.checkToken(jwt);
+      return verifiedToken.valid;
+    } catch {
+      showToast(
+        "danger",
+        "Sorry an error occurred during user verification"
+      );
+    }
+  }
+
+  const logout = async () => {
+    try {
+      await SecureStore.deleteItemAsync('persistedUser');
+      await kuzzle.auth.deleteApiKey(currentUser.tokenId);
+
+      setCurrentUser(null);
+      setIsLoggedIn(false);
+    } catch {
+      showToast(
+        "danger",
+        "Sorry an error occurred during log-out"
+      );
+    }
+  }
 
   useEffect(() => {
     if (isRessourcesLoaded) {
@@ -93,15 +136,24 @@ export default function App() {
 
   useEffect(() => {
     if (connected) {
-      setIsLoadingComplete(true);
+      SecureStore.getItemAsync('persistedUser').then(async (persistedUser) => {
+        persistedUser = JSON.parse(persistedUser);
+
+        if (await checkTokenValidity(persistedUser.jwt)) {
+          kuzzle.jwt = persistedUser.jwt; // set the jwt on the kuzzle SDK property to automatically use it
+          setCurrentUser(persistedUser)
+        }
+
+        setIsLoadingComplete(true);
+      }).catch(() => setIsLoadingComplete(true));
     }
   }, [connected]);
 
   useEffect(() => {
-    if (jwt && username) {
+    if (currentUser) {
       setIsLoggedIn(true);
     }
-  }, [jwt, username]);
+  }, [currentUser]);
 
   const renderApp = () => {
     if (!isRessourcesLoaded) {
@@ -120,8 +172,8 @@ export default function App() {
       pageContent = <Spinner />;
     } else if (!isLoggedIn) {
       pageContent = <LoginForm onLoginSuccess={onLoginSuccess} />;
-    } else {
-      pageContent = <Chat currentUsername={username} />;
+    } else if (currentUser) {
+      pageContent = <Chat currentUsername={currentUser.username} />;
     }
 
     return (
@@ -131,6 +183,12 @@ export default function App() {
             <Body>
               <Title>Kuzzle Chat</Title>
             </Body>
+            {isLoggedIn && <Right>
+              <Button transparent onPress={logout}>
+                <Icon name='log-out' />
+              </Button>
+            </Right>}
+
           </Header>
           <Container padder>{pageContent}</Container>
         </Container>
